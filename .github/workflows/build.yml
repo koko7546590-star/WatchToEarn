@@ -24,14 +24,95 @@ jobs:
       - name: Clean & Setup Flutter Project
         run: |
           rm -rf android android.iml .idea
-          flutter create . --project-name=watchtoearn --platforms=android --org=com.watch.earn
+          flutter create . --project-name=watchtomoney --platforms=android --org=com.watchtomoney.app
+          flutter pub add firebase_core firebase_auth google_mobile_ads
+
+      - name: Create google-services.json
+        run: |
+          cat << 'EOF' > android/app/google-services.json
+          {
+            "project_info": {
+              "project_number": "989405877276",
+              "project_id": "watch-to-money",
+              "storage_bucket": "watch-to-money.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:989405877276:android:bf8464f9991c9cf5563bd9",
+                  "android_client_info": {
+                    "package_name": "com.watchtomoney.app"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AiZaSyDr16pEElu7sXwrkEiC9y0Zug_G0hmIPpg"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      - name: Update AndroidManifest for AdMob & Firebase
+        run: |
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+              <application
+                  android:label="Watch &amp; Earn"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher">
+                  
+                  <meta-data
+                      android:name="com.google.android.gms.ads.APPLICATION_ID"
+                      android:value="ca-app-pub-3940256099942544~3347511713"/>
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:taskAffinity=""
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                        android:name="io.flutter.embedding.android.NormalTheme"
+                        android:resource="@style/NormalTheme"
+                        />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
+          </manifest>
+          EOF
 
       - name: Inject Custom Code into main.dart
         run: |
           cat << 'EOF' > lib/main.dart
           import 'package:flutter/material.dart';
+          import 'package:firebase_core/firebase_core.dart';
+          import 'package:firebase_auth/firebase_auth.dart';
+          import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-          void main() {
+          void main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+            await Firebase.initializeApp();
+            MobileAds.instance.initialize();
             runApp(const WatchToEarnApp());
           }
 
@@ -39,7 +120,7 @@ jobs:
             const WatchToEarnApp({super.key});
 
             @override
-            Widget build(BuildContext context) {
+            Widget build(Widget context) {
               return MaterialApp(
                 title: 'Watch & Earn Myanmar',
                 debugShowCheckedModeBanner: false,
@@ -59,51 +140,93 @@ jobs:
           class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
             final TextEditingController _phoneController = TextEditingController();
             final TextEditingController _otpController = TextEditingController();
-            
+            final FirebaseAuth _auth = FirebaseAuth.instance;
+
             bool _isOtpSent = false;
             bool _isLoading = false;
+            String? _verificationId;
             final String _adminPhoneNumber = '09682396685';
 
             void _sendOtp() async {
-              String phone = _phoneController.text.trim();
-              if (!phone.startsWith('09')) phone = '09$phone';
+              String rawPhone = _phoneController.text.trim();
+              if (rawPhone.isEmpty) {
+                _showSnackBar('ဖုန်းနံပါတ် ရိုက်ထည့်ပါ');
+                return;
+              }
 
-              if (phone.length < 9) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('ဖုန်းနံပါတ် မှန်ကန်စွာ ထည့်ပါ')),
+              // Myanmar International Format (+959xxxxxxxxx)
+              String formattedPhone = rawPhone.startsWith('09')
+                  ? rawPhone.replaceFirst('09', '+959')
+                  : (rawPhone.startsWith('+959') ? rawPhone : '+959$rawPhone');
+
+              setState(() => _isLoading = true);
+
+              try {
+                await _auth.verifyPhoneNumber(
+                  phoneNumber: formattedPhone,
+                  timeout: const Duration(seconds: 60),
+                  verificationCompleted: (PhoneAuthCredential credential) async {
+                    await _auth.signInWithCredential(credential);
+                    _verifyAndLogin(rawPhone);
+                  },
+                  verificationFailed: (FirebaseAuthException e) {
+                    setState(() => _isLoading = false);
+                    _showSnackBar('OTP ပို့၍ မရပါ: ${e.message}');
+                  },
+                  codeSent: (String verificationId, int? resendToken) {
+                    setState(() {
+                      _isLoading = false;
+                      _isOtpSent = true;
+                      _verificationId = verificationId;
+                    });
+                    _showSnackBar('SMS ထဲသို့ OTP Code ပို့လိုက်ပါပြီ');
+                  },
+                  codeAutoRetrievalTimeout: (String verificationId) {
+                    _verificationId = verificationId;
+                  },
                 );
+              } catch (e) {
+                setState(() => _isLoading = false);
+                _showSnackBar('အမှားအယွင်း ဖြစ်ပေါ်ခဲ့သည်: $e');
+              }
+            }
+
+            void _verifyOtp() async {
+              String smsCode = _otpController.text.trim();
+              if (smsCode.length < 6 || _verificationId == null) {
+                _showSnackBar('ဂဏန်း ၆ လုံးပါသော OTP ရိုက်ထည့်ပါ');
                 return;
               }
 
               setState(() => _isLoading = true);
-              await Future.delayed(const Duration(seconds: 2));
 
-              setState(() {
-                _isLoading = false;
-                _isOtpSent = true;
-              });
-
-              _autoFillOtpAndVerify(phone);
-            }
-
-            void _autoFillOtpAndVerify(String phone) async {
-              await Future.delayed(const Duration(seconds: 2));
-              if (mounted) {
-                setState(() => _otpController.text = '123456');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('SMS Code အလိုအလျောက် ဖတ်ယူပြီးပါပြီ')),
+              try {
+                PhoneAuthCredential credential = PhoneAuthProvider.credential(
+                  verificationId: _verificationId!,
+                  smsCode: smsCode,
                 );
-                await Future.delayed(const Duration(seconds: 1));
-                _verifyAndLogin(phone);
+
+                await _auth.signInWithCredential(credential);
+                String rawPhone = _phoneController.text.trim();
+                _verifyAndLogin(rawPhone);
+              } catch (e) {
+                setState(() => _isLoading = false);
+                _showSnackBar('OTP မှားယွင်းနေပါသည်');
               }
             }
 
             void _verifyAndLogin(String phone) {
-              if (phone == _adminPhoneNumber) {
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => AdminScreen(phoneNumber: phone)));
+              String cleanPhone = phone.startsWith('+959') ? phone.replaceFirst('+959', '09') : (phone.startsWith('09') ? phone : '09$phone');
+              
+              if (cleanPhone == _adminPhoneNumber) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => AdminScreen(phoneNumber: cleanPhone)));
               } else {
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => HomeScreen(phoneNumber: phone)));
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => HomeScreen(phoneNumber: cleanPhone)));
               }
+            }
+
+            void _showSnackBar(String text) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
             }
 
             @override
@@ -132,13 +255,13 @@ jobs:
                           keyboardType: TextInputType.number,
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 24, letterSpacing: 8),
-                          decoration: const InputDecoration(labelText: 'SMS Code (Auto Reading...)', border: OutlineInputBorder()),
+                          decoration: const InputDecoration(labelText: 'SMS Code ထည့်ပါ', border: OutlineInputBorder()),
                         ),
                       const SizedBox(height: 20),
                       ElevatedButton(
-                        onPressed: _isLoading ? null : _sendOtp,
+                        onPressed: _isLoading ? null : (_isOtpSent ? _verifyOtp : _sendOtp),
                         style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-                        child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : Text(_isOtpSent ? 'OTP အလိုအလျောက် စစ်ဆေးနေသည်...' : 'OTP Code တောင်းမည်'),
+                        child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : Text(_isOtpSent ? 'OTP အတည်ပြုမည်' : 'OTP Code တောင်းမည်'),
                       ),
                     ],
                   ),
@@ -159,14 +282,53 @@ jobs:
             int _userPoints = 5000;
             bool _isProcessingAd = false;
             bool _isProcessingWithdraw = false;
+            RewardedAd? _rewardedAd;
 
-            void _watchAd() async {
-              setState(() => _isProcessingAd = true);
-              await Future.delayed(const Duration(seconds: 3));
-              setState(() {
-                _isProcessingAd = false;
-                _userPoints += 50;
-              });
+            final String _adUnitId = 'ca-app-pub-3940256099942544/5224354917';
+
+            @override
+            void initState() {
+              super.initState();
+              _loadRewardedAd();
+            }
+
+            void _loadRewardedAd() {
+              RewardedAd.load(
+                adUnitId: _adUnitId,
+                request: const AdRequest(),
+                rewardedAdLoadCallback: RewardedAdLoadCallback(
+                  onAdLoaded: (ad) {
+                    _rewardedAd = ad;
+                  },
+                  onAdFailedToLoad: (error) {
+                    _rewardedAd = null;
+                  },
+                ),
+              );
+            }
+
+            void _watchAd() {
+              if (_rewardedAd != null) {
+                setState(() => _isProcessingAd = true);
+                _rewardedAd!.show(
+                  onUserEarnedReward: (AdWithoutView ad, RewardItem reward) {
+                    setState(() {
+                      _userPoints += 50;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('ကြော်ငြာကြည့်ပြီးပါပြီ! +50 Points ရရှိပါသည်')),
+                    );
+                  },
+                );
+                _rewardedAd = null;
+                _loadRewardedAd();
+                setState(() => _isProcessingAd = false);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('ကြော်ငြာ Load လုပ်နေဆဲဖြစ်သည်၊ ခဏစောင့်ပြီး ပြန်နှိပ်ပါ')),
+                );
+                _loadRewardedAd();
+              }
             }
 
             void _autoWithdraw() async {
@@ -196,7 +358,7 @@ jobs:
                         Text('Auto Withdraw Success'),
                       ],
                     ),
-                    content: Text('1000 MMK ကို အကောင့်နံပါတ် 09${widget.phoneNumber} သို့ အလိုအလျောက် လွှဲပြောင်းပေးပြီးပါပြီ။'),
+                    content: Text('1000 MMK ကို အကောင့်နံပါတ် ${widget.phoneNumber} သို့ အလိုအလျောက် လွှဲပြောင်းပေးပြီးပါပြီ။'),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
                     ],
