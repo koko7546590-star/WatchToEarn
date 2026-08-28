@@ -9,18 +9,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - uses: subosito/flutter-action@v2
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      - run: flutter create . --platforms=android
+      # Android Project အပြည့်အစုံကို Auto Re-create လုပ်ခြင်း
+      - run: |
+          rm -rf android pubspec.yaml
+          flutter create . --platforms=android --org=com.watch.earn
 
+      # main.dart ကို Auto ပြန်အစားထိုးခြင်း
       - run: flutter pub get
-      
-      # Release အစား Debug APK အဖြစ် ပြောင်းလဲဆောက်လုပ်ခြင်း
+
+      # Debug APK Build ဆွဲခြင်း
       - run: flutter build apk --debug --no-tree-shake-icons
-      
+
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
