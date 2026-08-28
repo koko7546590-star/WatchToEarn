@@ -14,14 +14,14 @@ jobs:
         with:
           channel: 'stable'
 
-      # Android Folder မရှိပါက အလိုအလျောက် Create လုပ်ပေးမည့် စနစ်
       - run: flutter create . --platforms=android
 
       - run: flutter pub get
       
-      - run: flutter build apk --release --no-tree-shake-icons
+      # Release အစား Debug APK အဖြစ် ပြောင်းလဲဆောက်လုပ်ခြင်း
+      - run: flutter build apk --debug --no-tree-shake-icons
       
       - uses: actions/upload-artifact@v4
         with:
-          name: release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
