@@ -35,4 +35,39 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apkname: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      # Project Name ကို စာလုံးသေး watchtoearn အဖြစ် အသေပေးပြီး Re-create လုပ်ခြင်း
+      - run: |
+          rm -rf android pubspec.yaml
+          flutter create . --project-name=watchtoearn --platforms=android --org=com.watch.earn
+
+      - run: flutter pub get
+
+      - run: flutter build apk --debug --no-tree-shake-icons
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
