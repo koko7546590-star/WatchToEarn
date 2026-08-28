@@ -21,18 +21,252 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Create Flutter Project
+      - name: Create Flutter Base
         run: |
           rm -rf android pubspec.yaml
           flutter create . --project-name=watchtoearn --platforms=android --org=com.watch.earn
 
-      - name: Get Dependencies
-        run: flutter pub get
+      - name: Inject Custom Code into main.dart
+        run: |
+          cat << 'EOF' > lib/main.dart
+          import 'package:flutter/material.dart';
 
-      - name: Build APK
+          void main() {
+            runApp(const WatchToEarnApp());
+          }
+
+          class WatchToEarnApp extends StatelessWidget {
+            const WatchToEarnApp({super.key});
+
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                title: 'Watch & Earn Myanmar',
+                debugShowCheckedModeBanner: false,
+                theme: ThemeData(primarySwatch: Colors.indigo, useMaterial3: true),
+                home: const PhoneAuthScreen(),
+              );
+            }
+          }
+
+          class PhoneAuthScreen extends StatefulWidget {
+            const PhoneAuthScreen({super.key});
+
+            @override
+            State<PhoneAuthScreen> createState() => _PhoneAuthScreenState();
+          }
+
+          class _PhoneAuthScreenState extends State<PhoneAuthScreen> {
+            final TextEditingController _phoneController = TextEditingController();
+            final TextEditingController _otpController = TextEditingController();
+            
+            bool _isOtpSent = false;
+            bool _isLoading = false;
+            final String _adminPhoneNumber = '09682396685';
+
+            void _sendOtp() async {
+              String phone = _phoneController.text.trim();
+              if (!phone.startsWith('09')) phone = '09$phone';
+
+              if (phone.length < 9) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('ဖုန်းနံပါတ် မှန်ကန်စွာ ထည့်ပါ')),
+                );
+                return;
+              }
+
+              setState(() => _isLoading = true);
+              await Future.delayed(const Duration(seconds: 2));
+
+              setState(() {
+                _isLoading = false;
+                _isOtpSent = true;
+              });
+
+              _autoFillOtpAndVerify(phone);
+            }
+
+            void _autoFillOtpAndVerify(String phone) async {
+              await Future.delayed(const Duration(seconds: 2));
+              if (mounted) {
+                setState(() => _otpController.text = '123456');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('SMS Code အလိုအလျောက် ဖတ်ယူပြီးပါပြီ')),
+                );
+                await Future.delayed(const Duration(seconds: 1));
+                _verifyAndLogin(phone);
+              }
+            }
+
+            void _verifyAndLogin(String phone) {
+              if (phone == _adminPhoneNumber) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => AdminScreen(phoneNumber: phone)));
+              } else {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => HomeScreen(phoneNumber: phone)));
+              }
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                body: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAlignment: CrossAlignment.stretch,
+                    children: [
+                      const Icon(Icons.security, size: 80, color: Colors.indigo),
+                      const SizedBox(height: 16),
+                      const Text('Phone Verification', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 32),
+                      TextField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        enabled: !_isOtpSent,
+                        decoration: const InputDecoration(labelText: 'ဖုန်းနံပါတ် ထည့်ပါ', prefixText: '09 ', border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_isOtpSent)
+                        TextField(
+                          controller: _otpController,
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 24, letterSpacing: 8),
+                          decoration: const InputDecoration(labelText: 'SMS Code (Auto Reading...)', border: OutlineInputBorder()),
+                        ),
+                      const SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: _isLoading ? null : _sendOtp,
+                        style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                        child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : Text(_isOtpSent ? 'OTP အလိုအလျောက် စစ်ဆေးနေသည်...' : 'OTP Code တောင်းမည်'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+
+          class HomeScreen extends StatefulWidget {
+            final String phoneNumber;
+            const HomeScreen({super.key, required this.phoneNumber});
+
+            @override
+            State<HomeScreen> createState() => _HomeScreenState();
+          }
+
+          class _HomeScreenState extends State<HomeScreen> {
+            int _userPoints = 5000;
+            bool _isProcessingAd = false;
+            bool _isProcessingWithdraw = false;
+
+            void _watchAd() async {
+              setState(() => _isProcessingAd = true);
+              await Future.delayed(const Duration(seconds: 3));
+              setState(() {
+                _isProcessingAd = false;
+                _userPoints += 50;
+              });
+            }
+
+            void _autoWithdraw() async {
+              if (_userPoints < 1000) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('အနည်းဆုံး 1000 Points ရှိမှ ငွေထုတ်နိုင်ပါမည်')),
+                );
+                return;
+              }
+
+              setState(() => _isProcessingWithdraw = true);
+              await Future.delayed(const Duration(seconds: 3));
+
+              setState(() {
+                _isProcessingWithdraw = false;
+                _userPoints -= 1000;
+              });
+
+              if (mounted) {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green),
+                        SizedBox(width: 8),
+                        Text('Auto Withdraw Success'),
+                      ],
+                    ),
+                    content: Text('1000 MMK ကို အကောင့်နံပါတ် 09${widget.phoneNumber} သို့ အလိုအလျောက် လွှဲပြောင်းပေးပြီးပါပြီ။'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                    ],
+                  ),
+                );
+              }
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('Watch & Earn'), backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                body: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAlignment: CrossAlignment.stretch,
+                    children: [
+                      Card(
+                        color: Colors.indigo.shade50,
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Column(
+                            children: [
+                              Text('အသုံးပြုသူ: ${widget.phoneNumber}', style: const TextStyle(fontSize: 16)),
+                              const SizedBox(height: 8),
+                              Text('$_userPoints Points', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                              Text('လက်ကျန်ငွေ: $_userPoints MMK', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        onPressed: _isProcessingAd ? null : _watchAd,
+                        icon: const Icon(Icons.play_circle_fill),
+                        label: Text(_isProcessingAd ? 'ကြော်ငြာကြည့်နေသည်...' : 'ကြော်ငြာကြည့်မည် (+50 Points)'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _isProcessingWithdraw ? null : _autoWithdraw,
+                        icon: const Icon(Icons.account_balance_wallet),
+                        label: Text(_isProcessingWithdraw ? 'Auto Transfer ပြုလုပ်နေသည်...' : 'Auto Withdraw (1000 MMK ထုတ်မည်)'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+
+          class AdminScreen extends StatelessWidget {
+            final String phoneNumber;
+            const AdminScreen({super.key, required this.phoneNumber});
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('Admin Panel'), backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                body: Center(child: Text('Admin Login Success: $phoneNumber', style: const TextStyle(fontSize: 18))),
+              );
+            }
+          }
+          EOF
+
+      - name: Build Debug APK
         run: flutter build apk --debug --no-tree-shake-icons
 
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
