@@ -26,12 +26,13 @@ jobs:
           flutter pub get
           flutter pub add firebase_core firebase_auth google_mobile_ads
 
+      - name: Ensure Android Directories Exist
+        run: |
+          mkdir -p android/app/src/main
+
       - name: Force Fix Gradle & AGP Version
         run: |
-          # settings.gradle ထဲက AGP version ကို 8.3.0 သို့ အတိအကျ ပြောင်းမည်
           sed -i 's/id "com.android.application" version ".*" apply false/id "com.android.application" version "8.3.0" apply false/g' android/settings.gradle || true
-          
-          # build.gradle ထဲမှာ compileSdk နဲ့ targetSdk ကို 34 သို့ သတ်မှတ်မည်
           if [ -f "android/app/build.gradle" ]; then
             sed -i 's/compileSdk .*/compileSdk 34/g' android/app/build.gradle || true
             sed -i 's/targetSdkVersion .*/targetSdkVersion 34/g' android/app/build.gradle || true
@@ -43,6 +44,7 @@ jobs:
 
       - name: Create google-services.json
         run: |
+          mkdir -p android/app
           cat << 'EOF' > android/app/google-services.json
           {
             "project_info": {
@@ -77,6 +79,7 @@ jobs:
 
       - name: Update AndroidManifest for AdMob & Firebase
         run: |
+          mkdir -p android/app/src/main
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
